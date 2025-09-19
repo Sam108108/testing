@@ -106,7 +106,7 @@ def analyze_csv_structure(client, df: pd.DataFrame) -> Dict[str, Any]:
     
     try:
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-sonnet-20241022,
             max_tokens=800,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -169,7 +169,7 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
     
     try:
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=600,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -211,9 +211,9 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
     
     # Apply keyword filtering with expanded terms for broader results
     if criteria.get('keywords') or criteria.get('expanded_keywords'):
-        keyword_mask = pd.Series([False] * len(df))
+        keyword_mask = pd.Series([False] * len(filtered_df), index=filtered_df.index)
         target_cols = criteria.get('target_columns', searchable_columns)
-        valid_target_cols = [col for col in target_cols if col in df.columns]
+        valid_target_cols = [col for col in target_cols if col in filtered_df.columns]
         search_cols = valid_target_cols if valid_target_cols else searchable_columns
         
         # Combine original and expanded keywords
@@ -221,12 +221,12 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
         
         for keyword in all_keywords:
             for col in search_cols:
-                keyword_mask |= df[col].astype(str).str.contains(keyword, case=False, na=False)
+                keyword_mask |= filtered_df[col].astype(str).str.contains(keyword, case=False, na=False)
         filtered_df = filtered_df[keyword_mask]
     
     # Apply style filtering with expanded terms
     if criteria.get('styles') or criteria.get('expanded_styles'):
-        style_mask = pd.Series([False] * len(filtered_df))
+        style_mask = pd.Series([False] * len(filtered_df), index=filtered_df.index)
         style_columns = col_map.get('category_columns', []) + col_map.get('name_columns', []) + col_map.get('description_columns', [])
         if not style_columns:
             style_columns = searchable_columns
@@ -247,7 +247,7 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
         if not color_columns:  # Fallback to all searchable columns
             color_columns = searchable_columns
             
-        color_mask = pd.Series([False] * len(filtered_df))
+        color_mask = pd.Series([False] * len(filtered_df), index=filtered_df.index)
         for color in criteria['colors']:
             for col in color_columns:
                 if col in filtered_df.columns:
@@ -261,7 +261,7 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
         if not category_columns:
             category_columns = searchable_columns
             
-        category_mask = pd.Series([False] * len(filtered_df))
+        category_mask = pd.Series([False] * len(filtered_df), index=filtered_df.index)
         for category in criteria['categories']:
             for col in category_columns:
                 if col in filtered_df.columns:
@@ -273,7 +273,7 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
     if criteria.get('brands'):
         brand_columns = col_map.get('brand_columns', [])
         if brand_columns:
-            brand_mask = pd.Series([False] * len(filtered_df))
+            brand_mask = pd.Series([False] * len(filtered_df), index=filtered_df.index)
             for brand in criteria['brands']:
                 for col in brand_columns:
                     if col in filtered_df.columns:
@@ -355,7 +355,7 @@ def rank_products_with_llm(client, df: pd.DataFrame, original_query: str, column
     
     try:
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -658,6 +658,10 @@ def main():
                         if criteria:
                             # Step 2: Filter data with expanded search terms for broader results
                             filtered_df = filter_fashion_data(df, criteria, st.session_state['csv_structure'])
+                            
+                            if len(filtered_df) == 0:
+                                st.warning("No products found matching your criteria. Try a different search!")
+                                return
                             
                             # Step 3: Use LLM to rank and select top products if we have many results
                             if len(filtered_df) > 10:
