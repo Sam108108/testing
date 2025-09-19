@@ -1,4 +1,162 @@
-import streamlit as st
+def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping: Dict[str, Any]):
+    """Display filtered products using cached column mapping for better presentation."""
+    
+    if df.empty:
+        st.warning("No products found matching your criteria. Try a different search!")
+        return
+    
+    st.success(f"Found {len(df)} matching products")
+    
+    # Show Claude's interpretation
+    if criteria.get('interpretation'):
+        st.info(f"Search interpretation: {criteria['interpretation']}")
+    
+    # Show ranking reasoning if available
+    if 'ranking_reasoning' in st.session_state:
+        st.info(f"Ranking reasoning: {st.session_state['ranking_reasoning']}")
+    
+    # Display extracted criteria
+    with st.expander("Search Criteria Extracted"):
+        # Show expanded search terms
+        if criteria.get('expanded_keywords'):
+            st.write("Original keywords:", criteria.get('keywords', []))
+            st.write("Expanded keywords:", criteria.get('expanded_keywords', []))
+        if criteria.get('expanded_styles'):
+            st.write("Original styles:", criteria.get('styles', []))
+            st.write("Expanded styles:", criteria.get('expanded_styles', []))
+        
+        criteria_display = {k: v for k, v in criteria.items() if v and k not in ['interpretation', 'expanded_keywords', 'expanded_styles']}
+        st.json(criteria_display)
+    
+    # Get display columns using cached mapping
+    col_map = column_mapping.get('column_mapping', {})
+    display_cols = []
+    
+    # Use mapped columns for better display
+    name_cols = col_map.get('name_columns', [])
+    price_cols = col_map.get('price_columns', [])
+    brand_cols = col_map.get('brand_columns', [])
+    color_cols = col_map.get('color_columns', [])
+    url_cols = col_map.get('url_columns', [])
+    
+    # Get first available column of each type
+    name_col = next((col for col in name_cols if col in df.columns), None)
+    price_col = next((col for col in price_cols if col in df.columns), None)
+    brand_col = next((col for col in brand_cols if col in df.columns), None)
+    color_col = next((col for col in color_cols if col in df.columns), None)
+    url_col = next((col for col in url_cols if col in df.columns), None)
+    
+    # Build display columns list
+    for col in [name_col, price_col, brand_col, color_col, url_col]:
+        if col:
+            display_cols.append(col)
+    
+    # Add other important columns
+    for col_list in col_map.values():
+        if isinstance(col_list, list):
+            for col in col_list:
+                if col in df.columns and col not in display_cols:
+                    display_cols.append(col)
+    
+    # Limit results for display
+    display_df = df.head(20)
+    
+    # Show products with improved visual layout
+    st.markdown("### Recommended Products")
+    
+    cols = st.columns(2)
+    for idx, (_, row) in enumerate(display_df.iterrows()):
+        with cols[idx % 2]:
+            with st.container():
+                # Product image handling
+                image_col = next((col for col in col_map.get('image_columns', []) if col in df.columns), None)
+                image_url = row.get(image_col, '') if image_col else ''
+                
+                if image_url and str(image_url).strip() and str(image_url) != 'N/A':
+                    try:
+                        # Clean image URL - handle multiple URLs separated by delimiters
+                        if '~' in str(image_url):
+                            image_url = str(image_url).split('~')[0].strip()
+                        elif ',' in str(image_url):
+                            image_url = str(image_url).split(',')[0].strip()
+                        
+                        if str(image_url).startswith('http'):
+                            product_name = str(row[name_col])[:40] if name_col and pd.notna(row[name_col]) else "Product"
+                            st.image(image_url, width=200, caption=product_name)
+                        else:
+                            st.write("Image: Invalid URL")
+                    except Exception:
+                        st.write("Image: Loading error")
+                else:
+                    st.write("Image: Not available")
+                
+                # Product name
+                if name_col and pd.notna(row[name_col]):
+                    product_name = str(row[name_col])
+                    display_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
+                    st.markdown(f"**{display_name}**")
+                
+                # Create two columns for details and button
+                col_details, col_button = st.columns([2, 1])
+                
+                with col_details:
+                    # Price 
+                    if price_col and pd.notna(row[price_col]):
+                        st.write(f"Price: **{row[price_col]}**")
+                    
+                    # Brand
+                    if brand_col and pd.notna(row[brand_col]):
+                        st.write(f"Brand: {row[brand_col]}")
+                    
+                    # Color
+                    if color_col and pd.notna(row[color_col]):
+                        st.write(f"Color: {row[color_col]}")
+                    
+                    # Size if available
+                    size_cols = col_map.get('size_columns', [])
+                    size_col = next((col for col in size_cols if col in df.columns), None)
+                    if size_col and pd.notna(row[size_col]):
+                        st.write(f"Size: {row[size_col]}")
+                
+                with col_button:
+                    # Product URL button
+                    if url_col and pd.notna(row[url_col]) and str(row[url_col]) not in ['#', '', 'N/A']:
+                        st.link_button("View Product", str(row[url_col]), use_container_width=True)
+                
+                # Description in expandable section
+                desc_cols = col_map.get('description_columns', [])
+                desc_col = next((col for col in desc_cols if col in df.columns), None)
+                if desc_col and pd.notna(row[desc_col]):
+                    description = str(row[desc_col])
+                    if description not in ['', 'N/A'] and len(description) > 10:
+                        with st.expander("Description"):
+                            desc_text = description[:200]
+                            if len(description) > 200:
+                                desc_text += "..."
+                            st.write(desc_text)
+                
+                st.markdown("---")
+    
+    # Show CSV structure analysis
+    with st.expander("Dataset Analysis"):
+        if column_mapping.get('data_insights'):
+            st.write(f"Data insights: {column_mapping['data_insights']}")
+        
+        st.write("Column mapping:")
+        st.json(column_mapping.get('column_mapping', {}))
+    
+    # Show full results table
+    st.subheader("All Results")
+    st.dataframe(display_df[display_cols] if display_cols else display_df, use_container_width=True)
+    
+    # Download option
+    csv = display_df.to_csv(index=False)
+    st.download_button(
+        label="Download Results as CSV",
+        data=csv,
+        file_name="fashion_search_results.csv",
+        mime="text/csv"
+    )import streamlit as st
 import pandas as pd
 import json
 import re
@@ -130,10 +288,10 @@ def analyze_csv_structure(client, df: pd.DataFrame) -> Dict[str, Any]:
         return create_fallback_mapping(df)
 
 def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) -> Dict[str, Any]:
-    """Use Claude to analyze fashion query with cached column understanding."""
+    """Use Claude to analyze fashion query with cached column understanding and generate expanded search terms."""
     
     prompt = f"""
-    You are a fashion search assistant. Analyze this user query and extract search criteria.
+    You are a fashion search assistant. Analyze this user query and extract comprehensive search criteria with synonym expansion.
     
     User query: "{query}"
     
@@ -144,16 +302,23 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
     
     Extract search criteria and return a JSON object with these fields:
     - "keywords": array of relevant keywords to search in product names/descriptions
+    - "expanded_keywords": array of synonyms and alternative terms that fashion brands might use
     - "colors": array of color keywords if mentioned
     - "categories": array of clothing categories/types (dress, shirt, pants, etc.)
     - "occasions": array of occasions if mentioned (casual, formal, party, work, etc.) 
     - "styles": array of style descriptors (vintage, modern, boho, edgy, etc.)
+    - "expanded_styles": array of alternative style terms (vintage -> retro, heritage, classic, throwback)
     - "price_range": object with "min" and "max" if price mentioned
     - "brands": array of brand names if mentioned
     - "sizes": array of sizes if mentioned
     - "gender": "men", "women", or "unisex" if determinable
     - "target_columns": suggest which specific dataset columns to search based on the query
     - "interpretation": brief explanation of what the user is looking for
+    
+    For synonym expansion, think about how fashion brands describe items:
+    - "vintage" could be: retro, heritage, classic, throwback, timeless
+    - "cozy" could be: comfortable, soft, warm, plush, snug
+    - "jacket" could be: coat, outerwear, blazer, cardigan, wrap
     
     For "revenge dress" - this typically means a stunning, confidence-boosting dress worn after a breakup, usually black, elegant, and attention-grabbing.
     
@@ -163,7 +328,7 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
     try:
         response = client.messages.create(
             model="claude-3-haiku-20240307",
-            max_tokens=500,
+            max_tokens=600,
             messages=[{"role": "user", "content": prompt}]
         )
         
@@ -185,7 +350,7 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
         return {}
 
 def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping: Dict[str, Any]) -> pd.DataFrame:
-    """Filter fashion dataset using cached column mapping for more precise filtering."""
+    """Filter fashion dataset using cached column mapping with expanded keyword search for broader results."""
     filtered_df = df.copy()
     
     # Get mapped columns
@@ -202,17 +367,37 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
     # Remove duplicates and ensure columns exist in dataframe
     searchable_columns = list(set([col for col in searchable_columns if col in df.columns]))
     
-    # Apply keyword filtering across relevant columns
-    if criteria.get('keywords'):
+    # Apply keyword filtering with expanded terms for broader results
+    if criteria.get('keywords') or criteria.get('expanded_keywords'):
         keyword_mask = pd.Series([False] * len(df))
         target_cols = criteria.get('target_columns', searchable_columns)
         valid_target_cols = [col for col in target_cols if col in df.columns]
         search_cols = valid_target_cols if valid_target_cols else searchable_columns
         
-        for keyword in criteria['keywords']:
+        # Combine original and expanded keywords
+        all_keywords = criteria.get('keywords', []) + criteria.get('expanded_keywords', [])
+        
+        for keyword in all_keywords:
             for col in search_cols:
                 keyword_mask |= df[col].astype(str).str.contains(keyword, case=False, na=False)
         filtered_df = filtered_df[keyword_mask]
+    
+    # Apply style filtering with expanded terms
+    if criteria.get('styles') or criteria.get('expanded_styles'):
+        style_mask = pd.Series([False] * len(filtered_df))
+        style_columns = col_map.get('category_columns', []) + col_map.get('name_columns', []) + col_map.get('description_columns', [])
+        if not style_columns:
+            style_columns = searchable_columns
+        
+        # Combine original and expanded styles
+        all_styles = criteria.get('styles', []) + criteria.get('expanded_styles', [])
+        
+        for style in all_styles:
+            for col in style_columns:
+                if col in filtered_df.columns:
+                    style_mask |= filtered_df[col].astype(str).str.contains(style, case=False, na=False)
+        if style_mask.any():
+            filtered_df = filtered_df[style_mask]
     
     # Apply color filtering using mapped color columns
     if criteria.get('colors'):
@@ -275,7 +460,91 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
     
     return filtered_df
 
-def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping: Dict[str, Any]):
+def rank_products_with_llm(client, df: pd.DataFrame, original_query: str, column_mapping: Dict[str, Any]) -> pd.DataFrame:
+    """Use LLM to intelligently rank and select top 10 products from broader search results."""
+    
+    if len(df) <= 10:
+        return df  # No need to rank if we have 10 or fewer results
+    
+    # Get key columns for ranking
+    col_map = column_mapping.get('column_mapping', {})
+    name_col = next((col for col in col_map.get('name_columns', []) if col in df.columns), None)
+    price_col = next((col for col in col_map.get('price_columns', []) if col in df.columns), None)
+    brand_col = next((col for col in col_map.get('brand_columns', []) if col in df.columns), None)
+    desc_col = next((col for col in col_map.get('description_columns', []) if col in df.columns), None)
+    
+    # Prepare product data for LLM - limit to top 20 for cost control
+    products_for_ranking = df.head(20)
+    products_list = []
+    
+    for idx, (_, row) in enumerate(products_for_ranking.iterrows()):
+        product_data = {
+            "id": idx,
+            "name": str(row[name_col])[:100] if name_col and pd.notna(row[name_col]) else "Unknown",
+            "price": str(row[price_col]) if price_col and pd.notna(row[price_col]) else "N/A",
+            "brand": str(row[brand_col]) if brand_col and pd.notna(row[brand_col]) else "N/A"
+        }
+        
+        # Add description if available (truncated)
+        if desc_col and pd.notna(row[desc_col]):
+            product_data["description"] = str(row[desc_col])[:150] + "..." if len(str(row[desc_col])) > 150 else str(row[desc_col])
+        
+        products_list.append(product_data)
+    
+    # Create ranking prompt
+    prompt = f"""
+    You are a fashion expert helping rank search results. The user searched for: "{original_query}"
+    
+    Here are the product candidates:
+    {json.dumps(products_list, indent=1)}
+    
+    Please analyze each product and rank them by relevance to the user's search intent. Consider:
+    - How well the product name/description matches the search query
+    - Appropriateness for the style/occasion implied by the query  
+    - Quality indicators (brand recognition, price reasonableness)
+    - Overall fit with what the user is likely looking for
+    
+    Return a JSON object with:
+    - "top_products": array of the top 10 product IDs in order of relevance (most relevant first)
+    - "reasoning": brief explanation of your ranking criteria
+    
+    IMPORTANT: Return ONLY valid JSON without any markdown formatting, explanations, or code blocks.
+    """
+    
+    try:
+        response = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        # Clean and parse JSON response
+        json_str = clean_json_response(response.content[0].text)
+        
+        if st.session_state.get('debug_mode', False):
+            st.write("Ranking response:", json_str)
+        
+        ranking_result = json.loads(json_str)
+        top_product_ids = ranking_result.get('top_products', [])
+        
+        # Reorder dataframe based on LLM ranking
+        if top_product_ids:
+            # Get the ranked products
+            ranked_indices = [products_for_ranking.index[i] for i in top_product_ids if i < len(products_for_ranking)]
+            ranked_df = df.loc[ranked_indices]
+            
+            # Add ranking metadata
+            if 'reasoning' in ranking_result:
+                st.session_state['ranking_reasoning'] = ranking_result['reasoning']
+            
+            return ranked_df
+        else:
+            return df.head(10)  # Fallback to first 10 if ranking fails
+            
+    except Exception as e:
+        if st.session_state.get('debug_mode', False):
+            st.error(f"Ranking failed: {str(e)}")
+        return df.head(10)  # Fallback to first 10 if ranking fails
     """Display filtered products using cached column mapping for better presentation."""
     
     if df.empty:
@@ -527,15 +796,26 @@ def main():
                     
                 with st.spinner(f"Searching for: '{search_query}'..."):
                     try:
-                        # Analyze query with cached column mapping (cheap API call)
+                        # Step 1: Analyze query with expanded keywords (moderate API call)
                         criteria = analyze_fashion_query(client, search_query, st.session_state['csv_structure'])
                         
                         if criteria:
-                            # Filter data based on criteria and cached mapping
+                            # Step 2: Filter data with expanded search terms for broader results
                             filtered_df = filter_fashion_data(df, criteria, st.session_state['csv_structure'])
                             
+                            if len(filtered_df) == 0:
+                                st.warning("No products found matching your criteria. Try a different search!")
+                                return
+                            
+                            # Step 3: Use LLM to rank and select top products if we have many results
+                            if len(filtered_df) > 10:
+                                with st.spinner("Ranking products by relevance..."):
+                                    final_df = rank_products_with_llm(client, filtered_df, search_query, st.session_state['csv_structure'])
+                            else:
+                                final_df = filtered_df
+                            
                             # Display results with cached mapping
-                            display_products(filtered_df, criteria, st.session_state['csv_structure'])
+                            display_products(final_df, criteria, st.session_state['csv_structure'])
                         else:
                             st.error("Could not analyze your search query. Please try again.")
                             
