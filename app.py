@@ -25,6 +25,45 @@ def load_fashion_data(uploaded_file):
         st.error(f"Error loading CSV: {str(e)}")
         return None
 
+def create_fallback_mapping(df: pd.DataFrame) -> Dict[str, Any]:
+    """Create basic column mapping when LLM analysis fails."""
+    fallback_mapping = {
+        'column_mapping': {
+            'name_columns': [col for col in df.columns if any(word in col.lower() for word in ['name', 'title', 'product'])],
+            'price_columns': [col for col in df.columns if 'price' in col.lower()],
+            'brand_columns': [col for col in df.columns if 'brand' in col.lower()],
+            'color_columns': [col for col in df.columns if 'color' in col.lower() or 'colour' in col.lower()],
+            'category_columns': [col for col in df.columns if any(word in col.lower() for word in ['category', 'type', 'section'])],
+            'description_columns': [col for col in df.columns if any(word in col.lower() for word in ['description', 'detail'])],
+            'size_columns': [col for col in df.columns if 'size' in col.lower()],
+            'url_columns': [col for col in df.columns if 'url' in col.lower() or 'link' in col.lower()],
+            'image_columns': [col for col in df.columns if 'image' in col.lower() or 'img' in col.lower()],
+            'other_searchable': []
+        },
+        'data_insights': f'Fashion dataset with {len(df)} products - automatic analysis'
+    }
+    return fallback_mapping
+
+def clean_json_response(response_text: str) -> str:
+    """Clean LLM response to extract valid JSON."""
+    # Remove markdown code blocks
+    if "```json" in response_text:
+        response_text = response_text.split("```json")[1].split("```")[0]
+    elif "```" in response_text:
+        response_text = response_text.split("```")[1].split("```")[0]
+    
+    # Remove any leading/trailing whitespace
+    response_text = response_text.strip()
+    
+    # Try to find JSON object boundaries
+    start_idx = response_text.find('{')
+    end_idx = response_text.rfind('}')
+    
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        response_text = response_text[start_idx:end_idx + 1]
+    
+    return response_text
+
 def analyze_csv_structure(client, df: pd.DataFrame) -> Dict[str, Any]:
     """Analyze CSV structure once and cache the column understanding."""
     
@@ -62,7 +101,7 @@ def analyze_csv_structure(client, df: pd.DataFrame) -> Dict[str, Any]:
     - "data_insights": brief analysis of what kind of fashion data this contains
     
     Focus on identifying which actual column names correspond to these standard fields.
-    Return only valid JSON.
+    IMPORTANT: Return ONLY valid JSON without any markdown formatting, explanations, or code blocks.
     """
     
     try:
@@ -72,13 +111,23 @@ def analyze_csv_structure(client, df: pd.DataFrame) -> Dict[str, Any]:
             messages=[{"role": "user", "content": prompt}]
         )
         
-        json_str = response.content[0].text
+        # Clean and parse JSON response
+        json_str = clean_json_response(response.content[0].text)
+        
+        # Debug: show raw response if needed
+        if st.session_state.get('debug_mode', False):
+            st.write("Raw LLM response:", response.content[0].text)
+            st.write("Cleaned JSON:", json_str)
+        
         structure_analysis = json.loads(json_str)
         return structure_analysis
         
+    except json.JSONDecodeError as e:
+        st.warning(f"JSON parsing failed: {str(e)[:100]}... Using fallback method.")
+        return create_fallback_mapping(df)
     except Exception as e:
-        st.error(f"Error analyzing CSV structure: {str(e)}")
-        return {}
+        st.warning(f"CSV analysis failed: {str(e)[:100]}... Using fallback method.")
+        return create_fallback_mapping(df)
 
 def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) -> Dict[str, Any]:
     """Use Claude to analyze fashion query with cached column understanding."""
@@ -108,7 +157,7 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
     
     For "revenge dress" - this typically means a stunning, confidence-boosting dress worn after a breakup, usually black, elegant, and attention-grabbing.
     
-    Return only valid JSON.
+    IMPORTANT: Return ONLY valid JSON without any markdown formatting, explanations, or code blocks.
     """
     
     try:
@@ -118,10 +167,19 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
             messages=[{"role": "user", "content": prompt}]
         )
         
-        json_str = response.content[0].text
+        # Clean and parse JSON response
+        json_str = clean_json_response(response.content[0].text)
+        
+        # Debug: show raw response if needed
+        if st.session_state.get('debug_mode', False):
+            st.write("Query analysis response:", json_str)
+        
         criteria = json.loads(json_str)
         return criteria
         
+    except json.JSONDecodeError as e:
+        st.error(f"Failed to parse search criteria: {str(e)}")
+        return {}
     except Exception as e:
         st.error(f"Error analyzing query: {str(e)}")
         return {}
@@ -203,14 +261,16 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
             for price_col in price_columns:
                 if price_col in filtered_df.columns:
                     try:
-                        # Try to convert price column to numeric
-                        price_series = pd.to_numeric(filtered_df[price_col], errors='coerce')
+                        # Clean price data - remove currency symbols and convert to numeric
+                        price_series = filtered_df[price_col].astype(str).str.replace(r'[£$€,]', '', regex=True)
+                        price_series = pd.to_numeric(price_series, errors='coerce')
+                        
                         if 'min' in criteria['price_range']:
                             filtered_df = filtered_df[price_series >= criteria['price_range']['min']]
                         if 'max' in criteria['price_range']:
                             filtered_df = filtered_df[price_series <= criteria['price_range']['max']]
                         break  # Use first valid price column
-                    except:
+                    except Exception as e:
                         continue
     
     return filtered_df
@@ -229,7 +289,7 @@ def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping:
         st.info(f"**Search interpretation:** {criteria['interpretation']}")
     
     # Display extracted criteria
-    with st.expander("🎯 Extracted Search Criteria"):
+    with st.expander("Search Criteria Extracted"):
         criteria_display = {k: v for k, v in criteria.items() if v and k != 'interpretation'}
         st.json(criteria_display)
     
@@ -294,7 +354,7 @@ def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping:
                     st.markdown(f"[View Product]({row[url_col]})")
     
     # Show CSV structure analysis
-    with st.expander("📊 Dataset Analysis"):
+    with st.expander("Dataset Analysis"):
         if column_mapping.get('data_insights'):
             st.write(f"**Data insights:** {column_mapping['data_insights']}")
         
@@ -302,13 +362,13 @@ def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping:
         st.json(column_mapping.get('column_mapping', {}))
     
     # Show full results table
-    st.subheader("📊 All Results")
+    st.subheader("All Results")
     st.dataframe(display_df[display_cols] if display_cols else display_df, use_container_width=True)
     
     # Download option
     csv = display_df.to_csv(index=False)
     st.download_button(
-        label="📥 Download Results as CSV",
+        label="Download Results as CSV",
         data=csv,
         file_name="fashion_search_results.csv",
         mime="text/csv"
@@ -321,8 +381,11 @@ def main():
         layout="wide"
     )
     
-    st.title("👗 AI Fashion Search Assistant")
-    st.write("Upload your ASOS fashion dataset and search using natural language!")
+    st.title("Fashion Search Assistant")
+    st.write("Upload your fashion dataset and search using natural language!")
+    
+    # Debug mode toggle
+    st.sidebar.checkbox("Debug Mode", key="debug_mode", help="Show raw LLM responses for debugging")
     
     # Get Anthropic client
     client = get_anthropic_client()
@@ -334,9 +397,9 @@ def main():
     
     # File upload
     uploaded_file = st.file_uploader(
-        "Upload ASOS Fashion Dataset (CSV)", 
+        "Upload Fashion Dataset (CSV)", 
         type=['csv'],
-        help="Upload your ASOS fashion dataset in CSV format"
+        help="Upload your fashion dataset in CSV format"
     )
     
     if uploaded_file is not None:
@@ -354,16 +417,20 @@ def main():
                         if csv_structure:
                             st.session_state['csv_structure'] = csv_structure
                             st.session_state['last_uploaded_file'] = uploaded_file.name
-                            st.success("CSV structure analyzed and cached!")
+                            
+                            if csv_structure == create_fallback_mapping(df):
+                                st.info("Using basic column detection (LLM analysis failed)")
+                            else:
+                                st.success("CSV structure analyzed and cached!")
                         else:
                             st.error("Failed to analyze CSV structure. Using fallback method.")
-                            st.session_state['csv_structure'] = {'column_mapping': {}, 'data_insights': 'Fashion dataset'}
+                            st.session_state['csv_structure'] = create_fallback_mapping(df)
                     except Exception as e:
                         st.error(f"Error analyzing CSV: {str(e)}")
-                        st.session_state['csv_structure'] = {'column_mapping': {}, 'data_insights': 'Fashion dataset'}
+                        st.session_state['csv_structure'] = create_fallback_mapping(df)
             
             # Show dataset info
-            with st.expander("📋 Dataset Info"):
+            with st.expander("Dataset Info"):
                 st.write(f"**Shape:** {df.shape}")
                 st.write(f"**Columns:** {', '.join(df.columns.tolist())}")
                 st.write("**Sample data:**")
@@ -385,7 +452,7 @@ def main():
                 )
             
             with col2:
-                search_button = st.button("🔍 Search", type="primary")
+                search_button = st.button("Search", type="primary")
             
             # Example queries
             st.markdown("**Try these examples:**")
@@ -398,7 +465,7 @@ def main():
             ]
             
             for i, example in enumerate(examples):
-                if example_cols[i].button(f"💡 {example}", key=f"example_{i}"):
+                if example_cols[i].button(f"{example}", key=f"example_{i}"):
                     search_query = example
                     search_button = True
             
@@ -427,12 +494,12 @@ def main():
                         st.error(f"Search failed: {str(e)}")
     
     # Instructions
-    with st.expander("ℹ️ How to use"):
+    with st.expander("How to use"):
         st.markdown("""
         **Instructions:**
         1. Get an Anthropic API key from https://console.anthropic.com/
         2. Enter your API key in the sidebar or secrets
-        3. Upload your ASOS fashion dataset CSV file
+        3. Upload your fashion dataset CSV file
         4. Enter natural language fashion queries
         5. View AI-powered search results!
         
@@ -445,19 +512,19 @@ def main():
         """)
     
     # Technical details
-    with st.expander("🔧 How it works"):
+    with st.expander("How it works"):
         st.markdown("""
         **AI-Powered Search Process:**
-        1. **Query Analysis**: Claude analyzes your natural language query
-        2. **Criteria Extraction**: Identifies keywords, colors, categories, prices, etc.
-        3. **Smart Filtering**: Applies multiple filters to your dataset
-        4. **Result Display**: Shows matching products with extracted criteria
+        1. **Structure Analysis**: Claude analyzes your CSV structure once and caches the understanding
+        2. **Query Analysis**: Claude interprets your natural language query using cached context
+        3. **Smart Filtering**: Applies multiple filters to your dataset based on extracted criteria
+        4. **Result Display**: Shows matching products with explanation of what the AI understood
         
         **Benefits:**
         - Natural language queries instead of rigid filters
         - Context-aware search (understands "revenge dress", fashion occasions)
         - Multi-criteria filtering across different product attributes
-        - Explainable results showing what the AI understood
+        - Cost-effective with session-based caching
         """)
 
 if __name__ == "__main__":
