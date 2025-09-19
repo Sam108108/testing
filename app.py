@@ -106,7 +106,7 @@ def analyze_csv_structure(client, df: pd.DataFrame) -> Dict[str, Any]:
     
     try:
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=800,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -157,15 +157,10 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
     - "target_columns": suggest which specific dataset columns to search based on the query
     - "interpretation": brief explanation of what the user is looking for
     
-    When generating expanded keywords, think about how e-commerce sites and fashion retailers would describe these products in their catalogs. Include:
-    - Retail category terms and merchandising language (e.g., "lifestyle sneakers", "court classics", "heritage footwear")
-    - Brand terminology and marketing descriptors (e.g., "street style", "smart casual", "elevated basics")
-    
     For synonym expansion, think about how fashion brands describe items:
     - "vintage" could be: retro, heritage, classic, throwback, timeless
     - "cozy" could be: comfortable, soft, warm, plush, snug
     - "jacket" could be: coat, outerwear, blazer, cardigan, wrap
-    - "casual shoes" could be: sneakers, trainers, lifestyle footwear, court shoes, low-tops
     
     For "revenge dress" - this typically means a stunning, confidence-boosting dress worn after a breakup, usually black, elegant, and attention-grabbing.
     
@@ -174,7 +169,7 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
     
     try:
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=600,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -340,45 +335,27 @@ def rank_products_with_llm(client, df: pd.DataFrame, original_query: str, column
     
     # Create ranking prompt
     prompt = f"""
-    You are a professional stylist with years of experience in fashion media, personal styling, and understanding what works in real-world settings. A client searched for: "{original_query}"
-
-    Here are the available options from their wardrobe/shopping list:
+    You are a fashion expert helping rank search results. The user searched for: "{original_query}"
+    
+    Here are the product candidates:
     {json.dumps(products_list, indent=1)}
-
-    As their stylist, rank these items by what you would actually recommend for this specific request. Draw on your knowledge of:
-
-    STYLIST EXPERTISE:
-    - What fashion editors feature in magazines for similar occasions
-    - What influencers and style icons actually wear in these situations  
-    - How different pieces photograph and present in social settings
-    - Which items have lasting appeal vs fleeting trends
-    - Price-to-style ratio and investment piece value
-
-    REAL-WORLD STYLING:
-    - Consider comfort and confidence - the best outfit is one they feel great in
-    - Think about versatility - can this work for multiple similar occasions?
-    - Account for current fashion climate and what's considered stylish now
-    - Balance aspiration with practicality for the stated use case
-    - Consider visual appeal and how pieces present in photos, as this affects confidence and satisfaction
-
-    YOUR RECOMMENDATION PROCESS:
-    - What would you personally put together for a client with this request?
-    - Which pieces have that "effortlessly chic" quality stylists look for?
-    - What creates the right impression for the specific occasion mentioned?
-    - How do these items fit into current fashion narratives and cultural moments?
-
-    Rank as if you're curating a personalized selection for a valued client who trusts your fashion judgment.
-
+    
+    Please analyze each product and rank them by relevance to the user's search intent. Consider:
+    - How well the product name/description matches the search query
+    - Appropriateness for the style/occasion implied by the query  
+    - Quality indicators (brand recognition, price reasonableness)
+    - Overall fit with what the user is likely looking for
+    
     Return a JSON object with:
-    - "top_products": array of the top 10 product IDs in order of preference (your top recommendations first)
-    - "reasoning": your styling rationale focusing on why these choices work for this specific request
-
+    - "top_products": array of the top 10 product IDs in order of relevance (most relevant first)
+    - "reasoning": brief explanation of your ranking criteria
+    
     IMPORTANT: Return ONLY valid JSON without any markdown formatting, explanations, or code blocks.
     """
     
     try:
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}]
         )
