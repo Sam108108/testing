@@ -157,10 +157,15 @@ def analyze_fashion_query(client, query: str, column_mapping: Dict[str, Any]) ->
     - "target_columns": suggest which specific dataset columns to search based on the query
     - "interpretation": brief explanation of what the user is looking for
     
+    When generating expanded keywords, think about how e-commerce sites and fashion retailers would describe these products in their catalogs. Include:
+    - Retail category terms and merchandising language (e.g., "lifestyle sneakers", "court classics", "heritage footwear")
+    - Brand terminology and marketing descriptors (e.g., "street style", "smart casual", "elevated basics")
+    
     For synonym expansion, think about how fashion brands describe items:
     - "vintage" could be: retro, heritage, classic, throwback, timeless
     - "cozy" could be: comfortable, soft, warm, plush, snug
     - "jacket" could be: coat, outerwear, blazer, cardigan, wrap
+    - "casual shoes" could be: sneakers, trainers, lifestyle footwear, court shoes, low-tops
     
     For "revenge dress" - this typically means a stunning, confidence-boosting dress worn after a breakup, usually black, elegant, and attention-grabbing.
     
@@ -358,6 +363,7 @@ def rank_products_with_llm(client, df: pd.DataFrame, original_query: str, column
 
     YOUR RECOMMENDATION PROCESS:
     - What would you personally put together for a client with this request?
+    - Which pieces have that "effortlessly chic" quality stylists look for?
     - What creates the right impression for the specific occasion mentioned?
     - How do these items fit into current fashion narratives and cultural moments?
 
