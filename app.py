@@ -17,7 +17,7 @@ def get_anthropic_client():
     return None
 
 def load_fashion_data(uploaded_file):
-    """Load ASOS fashion dataset from uploaded CSV."""
+    """Load fashion dataset from uploaded CSV."""
     try:
         df = pd.read_csv(uploaded_file)
         return df
@@ -262,7 +262,7 @@ def filter_fashion_data(df: pd.DataFrame, criteria: Dict[str, Any], column_mappi
                 if price_col in filtered_df.columns:
                     try:
                         # Clean price data - remove currency symbols and convert to numeric
-                        price_series = filtered_df[price_col].astype(str).str.replace(r'[£$€,]', '', regex=True)
+                        price_series = filtered_df[price_col].astype(str).str.replace(r'[^\d.]', '', regex=True)
                         price_series = pd.to_numeric(price_series, errors='coerce')
                         
                         if 'min' in criteria['price_range']:
@@ -286,7 +286,7 @@ def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping:
     
     # Show Claude's interpretation
     if criteria.get('interpretation'):
-        st.info(f"**Search interpretation:** {criteria['interpretation']}")
+        st.info(f"Search interpretation: {criteria['interpretation']}")
     
     # Display extracted criteria
     with st.expander("Search Criteria Extracted"):
@@ -327,7 +327,7 @@ def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping:
     display_df = df.head(20)
     
     # Show products with improved visual layout
-    st.markdown("### 🛍️ Recommended Products")
+    st.markdown("### Recommended Products")
     
     cols = st.columns(2)
     for idx, (_, row) in enumerate(display_df.iterrows()):
@@ -349,11 +349,11 @@ def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping:
                             product_name = str(row[name_col])[:40] if name_col and pd.notna(row[name_col]) else "Product"
                             st.image(image_url, width=200, caption=product_name)
                         else:
-                            st.write("📷 Invalid image URL")
+                            st.write("Image: Invalid URL")
                     except Exception:
-                        st.write("📷 Image loading error")
+                        st.write("Image: Loading error")
                 else:
-                    st.write("📷 No image available")
+                    st.write("Image: Not available")
                 
                 # Product name
                 if name_col and pd.notna(row[name_col]):
@@ -365,215 +365,28 @@ def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping:
                 col_details, col_button = st.columns([2, 1])
                 
                 with col_details:
-                    # Price with currency symbol
+                    # Price 
                     if price_col and pd.notna(row[price_col]):
-                        price_val = str(row[price_col])
-                        # Check if price already has currency symbol
-                        if any(symbol in price_val for symbol in ['£', '
-    
-    # Show CSV structure analysis
-    with st.expander("Dataset Analysis"):
-        if column_mapping.get('data_insights'):
-            st.write(f"**Data insights:** {column_mapping['data_insights']}")
-        
-        st.write("**Column mapping:**")
-        st.json(column_mapping.get('column_mapping', {}))
-    
-    # Show full results table
-    st.subheader("All Results")
-    st.dataframe(display_df[display_cols] if display_cols else display_df, use_container_width=True)
-    
-    # Download option
-    csv = display_df.to_csv(index=False)
-    st.download_button(
-        label="Download Results as CSV",
-        data=csv,
-        file_name="fashion_search_results.csv",
-        mime="text/csv"
-    )
-
-def main():
-    st.set_page_config(
-        page_title="Fashion Search Assistant", 
-        page_icon="👗",
-        layout="wide"
-    )
-    
-    st.title("Fashion Search Assistant")
-    st.write("Upload your fashion dataset and search using natural language!")
-    
-    # Debug mode toggle
-    st.sidebar.checkbox("Debug Mode", key="debug_mode", help="Show raw LLM responses for debugging")
-    
-    # Get Anthropic client
-    client = get_anthropic_client()
-    
-    if not client:
-        st.warning("Please provide your Anthropic API key to use this app.")
-        st.info("You can get an API key from: https://console.anthropic.com/")
-        return
-    
-    # File upload
-    uploaded_file = st.file_uploader(
-        "Upload Fashion Dataset (CSV)", 
-        type=['csv'],
-        help="Upload your fashion dataset in CSV format"
-    )
-    
-    if uploaded_file is not None:
-        # Load data
-        df = load_fashion_data(uploaded_file)
-        
-        if df is not None:
-            st.success(f"Loaded {len(df)} products from dataset")
-            
-            # Check if we need to analyze CSV structure (do this once per upload)
-            if 'csv_structure' not in st.session_state or st.session_state.get('last_uploaded_file') != uploaded_file.name:
-                with st.spinner("Analyzing CSV structure..."):
-                    try:
-                        csv_structure = analyze_csv_structure(client, df)
-                        if csv_structure:
-                            st.session_state['csv_structure'] = csv_structure
-                            st.session_state['last_uploaded_file'] = uploaded_file.name
-                            
-                            if csv_structure == create_fallback_mapping(df):
-                                st.info("Using basic column detection (LLM analysis failed)")
-                            else:
-                                st.success("CSV structure analyzed and cached!")
-                        else:
-                            st.error("Failed to analyze CSV structure. Using fallback method.")
-                            st.session_state['csv_structure'] = create_fallback_mapping(df)
-                    except Exception as e:
-                        st.error(f"Error analyzing CSV: {str(e)}")
-                        st.session_state['csv_structure'] = create_fallback_mapping(df)
-            
-            # Show dataset info
-            with st.expander("Dataset Info"):
-                st.write(f"**Shape:** {df.shape}")
-                st.write(f"**Columns:** {', '.join(df.columns.tolist())}")
-                st.write("**Sample data:**")
-                st.dataframe(df.head(3))
-                
-                # Show cached structure analysis
-                if 'csv_structure' in st.session_state:
-                    st.write("**AI Analysis:**")
-                    st.write(st.session_state['csv_structure'].get('data_insights', 'No insights available'))
-            
-            # Search interface
-            col1, col2 = st.columns([4, 1])
-            
-            with col1:
-                search_query = st.text_input(
-                    "What are you looking for?", 
-                    placeholder="e.g., revenge dress, cozy winter sweater, formal black shoes, boho summer dress",
-                    help="Describe what you're looking for in natural language!"
-                )
-            
-            with col2:
-                search_button = st.button("Search", type="primary")
-            
-            # Example queries
-            st.markdown("**Try these examples:**")
-            example_cols = st.columns(4)
-            examples = [
-                "revenge dress", 
-                "cozy winter sweater under $50",
-                "formal black dress for work", 
-                "vintage denim jacket"
-            ]
-            
-            for i, example in enumerate(examples):
-                if example_cols[i].button(f"{example}", key=f"example_{i}"):
-                    search_query = example
-                    search_button = True
-            
-            # Search execution
-            if search_button and search_query:
-                # Ensure we have cached structure
-                if 'csv_structure' not in st.session_state:
-                    st.error("CSV structure not analyzed. Please refresh and try again.")
-                    return
-                    
-                with st.spinner(f"Searching for: '{search_query}'..."):
-                    try:
-                        # Analyze query with cached column mapping (cheap API call)
-                        criteria = analyze_fashion_query(client, search_query, st.session_state['csv_structure'])
-                        
-                        if criteria:
-                            # Filter data based on criteria and cached mapping
-                            filtered_df = filter_fashion_data(df, criteria, st.session_state['csv_structure'])
-                            
-                            # Display results with cached mapping
-                            display_products(filtered_df, criteria, st.session_state['csv_structure'])
-                        else:
-                            st.error("Could not analyze your search query. Please try again.")
-                            
-                    except Exception as e:
-                        st.error(f"Search failed: {str(e)}")
-    
-    # Instructions
-    with st.expander("How to use"):
-        st.markdown("""
-        **Instructions:**
-        1. Get an Anthropic API key from https://console.anthropic.com/
-        2. Enter your API key in the sidebar or secrets
-        3. Upload your fashion dataset CSV file
-        4. Enter natural language fashion queries
-        5. View AI-powered search results!
-        
-        **Example queries:**
-        - "revenge dress" - Stunning black dress for confidence
-        - "cozy winter sweater under $50" - Warm sweaters within budget
-        - "formal work outfit" - Professional attire
-        - "boho summer dress" - Bohemian style summer dresses
-        - "vintage denim jacket size M" - Specific vintage item with size
-        """)
-    
-    # Technical details
-    with st.expander("How it works"):
-        st.markdown("""
-        **AI-Powered Search Process:**
-        1. **Structure Analysis**: Claude analyzes your CSV structure once and caches the understanding
-        2. **Query Analysis**: Claude interprets your natural language query using cached context
-        3. **Smart Filtering**: Applies multiple filters to your dataset based on extracted criteria
-        4. **Result Display**: Shows matching products with explanation of what the AI understood
-        
-        **Benefits:**
-        - Natural language queries instead of rigid filters
-        - Context-aware search (understands "revenge dress", fashion occasions)
-        - Multi-criteria filtering across different product attributes
-        - Cost-effective with session-based caching
-        """)
-
-if __name__ == "__main__":
-    main(), '€']):
-                            st.write(f"💰 **{price_val}**")
-                        else:
-                            # Try to format as currency if it's a number
-                            try:
-                                price_num = float(price_val.replace(',', ''))
-                                st.write(f"💰 **£{price_num:.2f}**")
-                            except:
-                                st.write(f"💰 **{price_val}**")
+                        st.write(f"Price: **{row[price_col]}**")
                     
                     # Brand
                     if brand_col and pd.notna(row[brand_col]):
-                        st.write(f"🏷️ {row[brand_col]}")
+                        st.write(f"Brand: {row[brand_col]}")
                     
                     # Color
                     if color_col and pd.notna(row[color_col]):
-                        st.write(f"🎨 {row[color_col]}")
+                        st.write(f"Color: {row[color_col]}")
                     
                     # Size if available
                     size_cols = col_map.get('size_columns', [])
                     size_col = next((col for col in size_cols if col in df.columns), None)
                     if size_col and pd.notna(row[size_col]):
-                        st.write(f"📏 {row[size_col]}")
+                        st.write(f"Size: {row[size_col]}")
                 
                 with col_button:
                     # Product URL button
                     if url_col and pd.notna(row[url_col]) and str(row[url_col]) not in ['#', '', 'N/A']:
-                        st.link_button("🔗 View", str(row[url_col]), use_container_width=True)
+                        st.link_button("View Product", str(row[url_col]), use_container_width=True)
                 
                 # Description in expandable section
                 desc_cols = col_map.get('description_columns', [])
@@ -581,7 +394,7 @@ if __name__ == "__main__":
                 if desc_col and pd.notna(row[desc_col]):
                     description = str(row[desc_col])
                     if description not in ['', 'N/A'] and len(description) > 10:
-                        with st.expander("📝 Description"):
+                        with st.expander("Description"):
                             desc_text = description[:200]
                             if len(description) > 200:
                                 desc_text += "..."
@@ -592,9 +405,9 @@ if __name__ == "__main__":
     # Show CSV structure analysis
     with st.expander("Dataset Analysis"):
         if column_mapping.get('data_insights'):
-            st.write(f"**Data insights:** {column_mapping['data_insights']}")
+            st.write(f"Data insights: {column_mapping['data_insights']}")
         
-        st.write("**Column mapping:**")
+        st.write("Column mapping:")
         st.json(column_mapping.get('column_mapping', {}))
     
     # Show full results table
@@ -667,14 +480,14 @@ def main():
             
             # Show dataset info
             with st.expander("Dataset Info"):
-                st.write(f"**Shape:** {df.shape}")
-                st.write(f"**Columns:** {', '.join(df.columns.tolist())}")
-                st.write("**Sample data:**")
+                st.write(f"Shape: {df.shape}")
+                st.write(f"Columns: {', '.join(df.columns.tolist())}")
+                st.write("Sample data:")
                 st.dataframe(df.head(3))
                 
                 # Show cached structure analysis
                 if 'csv_structure' in st.session_state:
-                    st.write("**AI Analysis:**")
+                    st.write("AI Analysis:")
                     st.write(st.session_state['csv_structure'].get('data_insights', 'No insights available'))
             
             # Search interface
@@ -691,7 +504,7 @@ def main():
                 search_button = st.button("Search", type="primary")
             
             # Example queries
-            st.markdown("**Try these examples:**")
+            st.markdown("Try these examples:")
             example_cols = st.columns(4)
             examples = [
                 "revenge dress", 
@@ -732,14 +545,14 @@ def main():
     # Instructions
     with st.expander("How to use"):
         st.markdown("""
-        **Instructions:**
+        Instructions:
         1. Get an Anthropic API key from https://console.anthropic.com/
         2. Enter your API key in the sidebar or secrets
         3. Upload your fashion dataset CSV file
         4. Enter natural language fashion queries
         5. View AI-powered search results!
         
-        **Example queries:**
+        Example queries:
         - "revenge dress" - Stunning black dress for confidence
         - "cozy winter sweater under $50" - Warm sweaters within budget
         - "formal work outfit" - Professional attire
@@ -750,13 +563,13 @@ def main():
     # Technical details
     with st.expander("How it works"):
         st.markdown("""
-        **AI-Powered Search Process:**
-        1. **Structure Analysis**: Claude analyzes your CSV structure once and caches the understanding
-        2. **Query Analysis**: Claude interprets your natural language query using cached context
-        3. **Smart Filtering**: Applies multiple filters to your dataset based on extracted criteria
-        4. **Result Display**: Shows matching products with explanation of what the AI understood
+        AI-Powered Search Process:
+        1. Structure Analysis: Claude analyzes your CSV structure once and caches the understanding
+        2. Query Analysis: Claude interprets your natural language query using cached context
+        3. Smart Filtering: Applies multiple filters to your dataset based on extracted criteria
+        4. Result Display: Shows matching products with explanation of what the AI understood
         
-        **Benefits:**
+        Benefits:
         - Natural language queries instead of rigid filters
         - Context-aware search (understands "revenge dress", fashion occasions)
         - Multi-criteria filtering across different product attributes
