@@ -1,162 +1,4 @@
-def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping: Dict[str, Any]):
-    """Display filtered products using cached column mapping for better presentation."""
-    
-    if df.empty:
-        st.warning("No products found matching your criteria. Try a different search!")
-        return
-    
-    st.success(f"Found {len(df)} matching products")
-    
-    # Show Claude's interpretation
-    if criteria.get('interpretation'):
-        st.info(f"Search interpretation: {criteria['interpretation']}")
-    
-    # Show ranking reasoning if available
-    if 'ranking_reasoning' in st.session_state:
-        st.info(f"Ranking reasoning: {st.session_state['ranking_reasoning']}")
-    
-    # Display extracted criteria
-    with st.expander("Search Criteria Extracted"):
-        # Show expanded search terms
-        if criteria.get('expanded_keywords'):
-            st.write("Original keywords:", criteria.get('keywords', []))
-            st.write("Expanded keywords:", criteria.get('expanded_keywords', []))
-        if criteria.get('expanded_styles'):
-            st.write("Original styles:", criteria.get('styles', []))
-            st.write("Expanded styles:", criteria.get('expanded_styles', []))
-        
-        criteria_display = {k: v for k, v in criteria.items() if v and k not in ['interpretation', 'expanded_keywords', 'expanded_styles']}
-        st.json(criteria_display)
-    
-    # Get display columns using cached mapping
-    col_map = column_mapping.get('column_mapping', {})
-    display_cols = []
-    
-    # Use mapped columns for better display
-    name_cols = col_map.get('name_columns', [])
-    price_cols = col_map.get('price_columns', [])
-    brand_cols = col_map.get('brand_columns', [])
-    color_cols = col_map.get('color_columns', [])
-    url_cols = col_map.get('url_columns', [])
-    
-    # Get first available column of each type
-    name_col = next((col for col in name_cols if col in df.columns), None)
-    price_col = next((col for col in price_cols if col in df.columns), None)
-    brand_col = next((col for col in brand_cols if col in df.columns), None)
-    color_col = next((col for col in color_cols if col in df.columns), None)
-    url_col = next((col for col in url_cols if col in df.columns), None)
-    
-    # Build display columns list
-    for col in [name_col, price_col, brand_col, color_col, url_col]:
-        if col:
-            display_cols.append(col)
-    
-    # Add other important columns
-    for col_list in col_map.values():
-        if isinstance(col_list, list):
-            for col in col_list:
-                if col in df.columns and col not in display_cols:
-                    display_cols.append(col)
-    
-    # Limit results for display
-    display_df = df.head(20)
-    
-    # Show products with improved visual layout
-    st.markdown("### Recommended Products")
-    
-    cols = st.columns(2)
-    for idx, (_, row) in enumerate(display_df.iterrows()):
-        with cols[idx % 2]:
-            with st.container():
-                # Product image handling
-                image_col = next((col for col in col_map.get('image_columns', []) if col in df.columns), None)
-                image_url = row.get(image_col, '') if image_col else ''
-                
-                if image_url and str(image_url).strip() and str(image_url) != 'N/A':
-                    try:
-                        # Clean image URL - handle multiple URLs separated by delimiters
-                        if '~' in str(image_url):
-                            image_url = str(image_url).split('~')[0].strip()
-                        elif ',' in str(image_url):
-                            image_url = str(image_url).split(',')[0].strip()
-                        
-                        if str(image_url).startswith('http'):
-                            product_name = str(row[name_col])[:40] if name_col and pd.notna(row[name_col]) else "Product"
-                            st.image(image_url, width=200, caption=product_name)
-                        else:
-                            st.write("Image: Invalid URL")
-                    except Exception:
-                        st.write("Image: Loading error")
-                else:
-                    st.write("Image: Not available")
-                
-                # Product name
-                if name_col and pd.notna(row[name_col]):
-                    product_name = str(row[name_col])
-                    display_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
-                    st.markdown(f"**{display_name}**")
-                
-                # Create two columns for details and button
-                col_details, col_button = st.columns([2, 1])
-                
-                with col_details:
-                    # Price 
-                    if price_col and pd.notna(row[price_col]):
-                        st.write(f"Price: **{row[price_col]}**")
-                    
-                    # Brand
-                    if brand_col and pd.notna(row[brand_col]):
-                        st.write(f"Brand: {row[brand_col]}")
-                    
-                    # Color
-                    if color_col and pd.notna(row[color_col]):
-                        st.write(f"Color: {row[color_col]}")
-                    
-                    # Size if available
-                    size_cols = col_map.get('size_columns', [])
-                    size_col = next((col for col in size_cols if col in df.columns), None)
-                    if size_col and pd.notna(row[size_col]):
-                        st.write(f"Size: {row[size_col]}")
-                
-                with col_button:
-                    # Product URL button
-                    if url_col and pd.notna(row[url_col]) and str(row[url_col]) not in ['#', '', 'N/A']:
-                        st.link_button("View Product", str(row[url_col]), use_container_width=True)
-                
-                # Description in expandable section
-                desc_cols = col_map.get('description_columns', [])
-                desc_col = next((col for col in desc_cols if col in df.columns), None)
-                if desc_col and pd.notna(row[desc_col]):
-                    description = str(row[desc_col])
-                    if description not in ['', 'N/A'] and len(description) > 10:
-                        with st.expander("Description"):
-                            desc_text = description[:200]
-                            if len(description) > 200:
-                                desc_text += "..."
-                            st.write(desc_text)
-                
-                st.markdown("---")
-    
-    # Show CSV structure analysis
-    with st.expander("Dataset Analysis"):
-        if column_mapping.get('data_insights'):
-            st.write(f"Data insights: {column_mapping['data_insights']}")
-        
-        st.write("Column mapping:")
-        st.json(column_mapping.get('column_mapping', {}))
-    
-    # Show full results table
-    st.subheader("All Results")
-    st.dataframe(display_df[display_cols] if display_cols else display_df, use_container_width=True)
-    
-    # Download option
-    csv = display_df.to_csv(index=False)
-    st.download_button(
-        label="Download Results as CSV",
-        data=csv,
-        file_name="fashion_search_results.csv",
-        mime="text/csv"
-    )import streamlit as st
+import streamlit as st
 import pandas as pd
 import json
 import re
@@ -545,6 +387,8 @@ def rank_products_with_llm(client, df: pd.DataFrame, original_query: str, column
         if st.session_state.get('debug_mode', False):
             st.error(f"Ranking failed: {str(e)}")
         return df.head(10)  # Fallback to first 10 if ranking fails
+
+def display_products(df: pd.DataFrame, criteria: Dict[str, Any], column_mapping: Dict[str, Any]):
     """Display filtered products using cached column mapping for better presentation."""
     
     if df.empty:
@@ -557,9 +401,21 @@ def rank_products_with_llm(client, df: pd.DataFrame, original_query: str, column
     if criteria.get('interpretation'):
         st.info(f"Search interpretation: {criteria['interpretation']}")
     
+    # Show ranking reasoning if available
+    if 'ranking_reasoning' in st.session_state:
+        st.info(f"Ranking reasoning: {st.session_state['ranking_reasoning']}")
+    
     # Display extracted criteria
     with st.expander("Search Criteria Extracted"):
-        criteria_display = {k: v for k, v in criteria.items() if v and k != 'interpretation'}
+        # Show expanded search terms
+        if criteria.get('expanded_keywords'):
+            st.write("Original keywords:", criteria.get('keywords', []))
+            st.write("Expanded keywords:", criteria.get('expanded_keywords', []))
+        if criteria.get('expanded_styles'):
+            st.write("Original styles:", criteria.get('styles', []))
+            st.write("Expanded styles:", criteria.get('expanded_styles', []))
+        
+        criteria_display = {k: v for k, v in criteria.items() if v and k not in ['interpretation', 'expanded_keywords', 'expanded_styles']}
         st.json(criteria_display)
     
     # Get display columns using cached mapping
@@ -803,10 +659,6 @@ def main():
                             # Step 2: Filter data with expanded search terms for broader results
                             filtered_df = filter_fashion_data(df, criteria, st.session_state['csv_structure'])
                             
-                            if len(filtered_df) == 0:
-                                st.warning("No products found matching your criteria. Try a different search!")
-                                return
-                            
                             # Step 3: Use LLM to rank and select top products if we have many results
                             if len(filtered_df) > 10:
                                 with st.spinner("Ranking products by relevance..."):
@@ -846,13 +698,16 @@ def main():
         AI-Powered Search Process:
         1. Structure Analysis: Claude analyzes your CSV structure once and caches the understanding
         2. Query Analysis: Claude interprets your natural language query using cached context
-        3. Smart Filtering: Applies multiple filters to your dataset based on extracted criteria
-        4. Result Display: Shows matching products with explanation of what the AI understood
+        3. Synonym Expansion: Generates alternative terms fashion brands might use
+        4. Broad Search: Searches with expanded keywords for comprehensive results
+        5. Intelligent Ranking: LLM ranks results by relevance to original intent
+        6. Result Display: Shows top matches with explanation of AI understanding
         
         Benefits:
         - Natural language queries instead of rigid filters
         - Context-aware search (understands "revenge dress", fashion occasions)
-        - Multi-criteria filtering across different product attributes
+        - Synonym expansion for better coverage
+        - Intelligent ranking for most relevant results
         - Cost-effective with session-based caching
         """)
 
